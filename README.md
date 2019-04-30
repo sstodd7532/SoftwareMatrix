@@ -1,9 +1,8 @@
 # SoftwareMatrix
 A series of scripts to document and report on software changes
 
-Requires MySQL 5.7
+Requires MySQL 8.0
 Blank database is included. Plan is to create a script to create database and prompt for needed info.
-For now, each script has a group of required variables near the top of the file.
 
 Scripts and their usage:
 
@@ -13,7 +12,7 @@ Pulls in a CSV file in the format (Workstation, Application, Publisher, Version)
 Checks any new software to see if it is FOSS using two websites (www.fosshub.com and www.chocolatey.org)
 Imports collected data into database and then reports on changes.
 Changes are reported via two emails - the Security Report and the Change Report
-- Security Report only reports on changes that impact the organization as a whole (e.g. new software added or deleted that was never seen before.) Only gets generated changes dictate.
+- Security Report only reports on changes that impact the organization as a whole (e.g. new software added or deleted that was never seen before.) Only gets generated when changes dictate.
 - Change Report includes all changes since the last import for all PCs.
 
 CheckSoftwareUpdates.vbs:
@@ -26,10 +25,11 @@ Checks nvd.nist.gov for vulnerabilities in installed applications. Frequency sho
 Uses RSS feed on NIST website to generate an email report on any applications thats name matches the feed. Not 100% accurate. Name must be exactly the same to match.
 Will report on a version match if there is one.
 
-CountApps-CheckLicense.vbs:
+CountApps-AssociatedReports.vbs
 Counts total installed instances per application. Frequency - monthly.
 Compares count to licenses table. Right now data needs to be entered to that table manually.
 Creates email report if any applications are over subscribed.
+Creates email report on top 10 highest risk software based on vulnerabilities within last year.
 
 EnterAppDetails.vbs:
 Run as needed.
@@ -38,7 +38,6 @@ The hope is to replace this with a web GUI.
 
 
 To Do:
-- Create web GUI (in PHP?) - allow for categorization of applications and quick reporting/searching
-- Enhance vulnerability table - Auto addition from CheckVulnerabilities.vbs, email with top 10 high risk software
+- Create web GUI - Project started - https://github.com/compuvin/SoftwareMatrix-GUI
 - Create and Integrate WhatTheFOSS list
 - Better code documentation

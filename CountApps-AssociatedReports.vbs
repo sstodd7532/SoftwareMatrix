@@ -1,29 +1,34 @@
 Dim adoconn
 Dim rs
 Dim str
+Dim i 'Counter
 dim outputl 'Email body
 dim CountName 'Count for each app
+set filesys=CreateObject("Scripting.FileSystemObject")
+Dim strCurDir
+strCurDir = filesys.GetParentFolderName(Wscript.ScriptFullName)
 
-'''''''''''''''''''
-'Required Variables
+'Gather variables from smapp.ini
+If filesys.FileExists(strCurDir & "\smapp.ini") then
+	'Database
+	DBPass = ReadIni(strCurDir & "\smapp.ini", "Database", "DBPass" )
+	
+	'Email - Defaults to anonymous login
+	RptToEmail = ReadIni(strCurDir & "\smapp.ini", "Email", "RptToEmail" )
+	RptFromEmail = ReadIni(strCurDir & "\smapp.ini", "Email", "RptFromEmail" )
+	EmailSvr = ReadIni(strCurDir & "\smapp.ini", "Email", "EmailSvr" )
+	'Additional email settings found in Function SendMail()
+else
+	msgbox "INI file not found at: " & strCurDir & "\smapp.ini" & vbCrlf & "Please run IngestCSV.vbs first before running this file."
+end if
 
-'Database
-DBPass = "P@ssword1" 'Password to access database on localhost
-
-'Email - Defaults to anonymous login
-RptToEmail = "admin@company.com" 'Report email's To address
-RptFromEmail = "admin@company.com" 'Report email's From address
-EmailSvr = "mail.server.com" 'FQDN or IP address of email server
-'Additional email settings found in Function SendMail()
-
-'''''''''''''''''''
 
 outputl = ""
 
 
 Set adoconn = CreateObject("ADODB.Connection")
 Set rs = CreateObject("ADODB.Recordset")
-adoconn.Open "Driver={MySQL ODBC 5.3 ANSI Driver};Server=localhost;" & _
+adoconn.Open "Driver={MySQL ODBC 8.0 ANSI Driver};Server=localhost;" & _
 		   "Database=software_matrix; User=root; Password=" & DBPass & ";"
 
 CountApps 'Count apps and update Computers column on discoveredapplications table
@@ -32,6 +37,14 @@ CheckLicenses 'Check licensed apps vs. actual installed count
 if outputl <> "" then
 	outputl = "<html><head> <style>BODY{font-family: Arial; font-size: 10pt;}TABLE{border: 1px solid black; border-collapse: collapse;}TH{border: 1px solid black; background: #dddddd; padding: 5px; }TD{border: 1px solid black; padding: 5px; }</style> </head><body>" & vbcrlf & outputl
 	SendMail RptToEmail, "Software Matrix: Licensing Report"
+	outputl = ""
+end if
+
+CountHighRiskApps 'Report on top 10 high risk apps
+
+if outputl <> "" then
+	outputl = "<html><head> <style>BODY{font-family: Arial; font-size: 10pt;}TABLE{border: 1px solid black; border-collapse: collapse;}TH{border: 1px solid black; background: #dddddd; padding: 5px; }TD{border: 1px solid black; padding: 5px; }</style> </head><body>" & vbcrlf & outputl
+	SendMail RptToEmail, "Software Matrix: High Risk Software Report"
 	outputl = ""
 end if
 
@@ -82,6 +95,41 @@ Function CheckLicenses()
 	
 		rs.movenext
 		if rs.eof then outputl = outputl & "</table>" & vbcrlf
+	loop
+	
+	rs.close
+End Function
+
+Function CountHighRiskApps()
+	str = "select Name, count(Name), max(DateAdded), (select Computers from software_matrix.discoveredapplications where discoveredapplications.Name = highriskapps.Name) Computers from highriskapps where DateAdded > '" & format(date() - 365, "YYYY-MM-DD") & "' group by Name order by count(Name) DESC, max(DateAdded) DESC, Computers DESC;"
+	rs.Open str, adoconn, 2, 1 'OpenType, LockType
+	
+	if not rs.eof then
+		'Header Info
+		outputl = outputl & "<p><b>High Risk Application Report (top 10):</b></p>" & vbcrlf
+		outputl = outputl & "<table>" & vbcrlf
+		outputl = outputl & "<tr>" & vbcrlf
+		outputl = outputl & "  <th>Name</th>" & vbcrlf
+		outputl = outputl & "  <th>Vulnerabilities prior year</th>" & vbcrlf
+		outputl = outputl & "  <th>Date of Last Vulnerability</th>" & vbcrlf
+		outputl = outputl & "  <th>Installed Amount</th>" & vbcrlf
+		outputl = outputl & "</tr>" & vbcrlf
+		
+		rs.MoveFirst
+	end if
+
+	i = 1
+	do while not rs.eof and not i > 10
+		outputl = outputl & "<tr>" & vbcrlf
+		outputl = outputl & "  <td>" & rs("Name") & "</td>" & vbcrlf
+		outputl = outputl & "  <td>" & rs("count(Name)") & "</td>" & vbcrlf
+		outputl = outputl & "  <td>" & rs("max(DateAdded)") & "</td>" & vbcrlf
+		outputl = outputl & "  <td>" & rs("Computers") & "</td>" & vbcrlf
+		outputl = outputl & "</tr>" & vbcrlf
+	
+		i = i + 1
+		rs.movenext
+		if rs.eof or i > 10 then outputl = outputl & "</table>" & vbcrlf
 	loop
 	
 	rs.close
@@ -192,4 +240,78 @@ Function Format(vExpression, sFormat)
 	
 	Format = nExpression
   end if
+End Function
+
+Function ReadIni( myFilePath, mySection, myKey ) 'Thanks to http://www.robvanderwoude.com
+    ' This function returns a value read from an INI file
+    '
+    ' Arguments:
+    ' myFilePath  [string]  the (path and) file name of the INI file
+    ' mySection   [string]  the section in the INI file to be searched
+    ' myKey       [string]  the key whose value is to be returned
+    '
+    ' Returns:
+    ' the [string] value for the specified key in the specified section
+    '
+    ' CAVEAT:     Will return a space if key exists but value is blank
+    '
+    ' Written by Keith Lacelle
+    ' Modified by Denis St-Pierre and Rob van der Woude
+
+    Const ForReading   = 1
+    Const ForWriting   = 2
+    Const ForAppending = 8
+
+    Dim intEqualPos
+    Dim objFSO, objIniFile
+    Dim strFilePath, strKey, strLeftString, strLine, strSection
+
+    Set objFSO = CreateObject( "Scripting.FileSystemObject" )
+
+    ReadIni     = ""
+    strFilePath = Trim( myFilePath )
+    strSection  = Trim( mySection )
+    strKey      = Trim( myKey )
+
+    If objFSO.FileExists( strFilePath ) Then
+        Set objIniFile = objFSO.OpenTextFile( strFilePath, ForReading, False )
+        Do While objIniFile.AtEndOfStream = False
+            strLine = Trim( objIniFile.ReadLine )
+
+            ' Check if section is found in the current line
+            If LCase( strLine ) = "[" & LCase( strSection ) & "]" Then
+                strLine = Trim( objIniFile.ReadLine )
+
+                ' Parse lines until the next section is reached
+                Do While Left( strLine, 1 ) <> "["
+                    ' Find position of equal sign in the line
+                    intEqualPos = InStr( 1, strLine, "=", 1 )
+                    If intEqualPos > 0 Then
+                        strLeftString = Trim( Left( strLine, intEqualPos - 1 ) )
+                        ' Check if item is found in the current line
+                        If LCase( strLeftString ) = LCase( strKey ) Then
+                            ReadIni = Trim( Mid( strLine, intEqualPos + 1 ) )
+                            ' In case the item exists but value is blank
+                            If ReadIni = "" Then
+                                ReadIni = " "
+                            End If
+                            ' Abort loop when item is found
+                            Exit Do
+                        End If
+                    End If
+
+                    ' Abort if the end of the INI file is reached
+                    If objIniFile.AtEndOfStream Then Exit Do
+
+                    ' Continue with next line
+                    strLine = Trim( objIniFile.ReadLine )
+                Loop
+            Exit Do
+            End If
+        Loop
+        objIniFile.Close
+    Else
+        WScript.Echo strFilePath & " doesn't exists. Exiting..."
+        Wscript.Quit 1
+    End If
 End Function
